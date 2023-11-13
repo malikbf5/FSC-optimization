@@ -7,7 +7,7 @@ FSC are versatile and memory-efficient policy parametrizations for the control o
 In order to run some files, it is needed to install pyomo: <br>
 https://pyomo.readthedocs.io/en/stable/installation.html
 
-The Ipopt solver is also needed, it can be downloaded throught the following link: <br>
+The Ipopt solver is also needed, it can be downloaded through the following link: <br>
 https://www.coin-or.org/download/binary/Ipopt/ <br>
 Then the Ipopt\bin folder must be added to the PATH
 
