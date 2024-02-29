@@ -13,3 +13,5 @@ Then the Ipopt\bin folder must be added to the PATH
 
 Here's a helpful tutorial to perform the aforementioned steps: <br>
 https://www.youtube.com/watch?v=EB_qVoM74Fg&ab_channel=BostanjiDevelopers
+
+There's also a folder in the repo containings introductory pdf slides
