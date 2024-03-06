@@ -23,7 +23,7 @@ $O(o = 1|s' = B,a = 1) = 1 - \theta$
 $O(o = 1|s' = B,a = 2) = \theta$
 
 #### Objective function given by the code:  
-$obj = 0.5*y(0,0) + 0.5*y(0,1)$  
+$z = 0.5*y(0,0) + 0.5*y(0,1)$  
 
 #### Constraints:
 
