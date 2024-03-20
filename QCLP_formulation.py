@@ -28,13 +28,17 @@ def qclp_formulation(num_states, num_actions, num_observations, num_nodes, b_0, 
         model.sum_over_action_and_qp = ConstraintList()
         for q_ in model.q:
             for o_ in model.o:
-                model.sum_over_action_and_qp.add(sum([model.x[qp, a_, q_ , o_] for qp in model.q for a_ in model.a]) == 1)
+                model.sum_over_action_and_qp.add(
+                    sum([model.x[qp, a_, q_ , o_] for qp in model.q for a_ in model.a]) == 1)
                 
         model.sum_independence_on_o = ConstraintList()
         for q_ in model.q:
             for o_ in model.o:
                 for a_ in model.a:
-                    model.sum_independence_on_o.add(sum([model.x[qp, a_, q_, o_] for qp in model.q]) == sum([model.x[qp, a_, q_, 0] for qp in model.q]))
+                    if o_ != 0:
+                        model.sum_independence_on_o.add(
+                            sum([model.x[qp, a_, q_, o_] for qp in model.q]) 
+                            == sum([model.x[qp, a_, q_, 0] for qp in model.q]))
         
         # Bellman equation constraints
         model.bellman_equation = ConstraintList()
