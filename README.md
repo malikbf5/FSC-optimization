@@ -8,7 +8,7 @@ FSC are versatile and memory-efficient policy parametrizations for the control o
 In order to run some files, it is needed to install pyomo: <br>
 https://pyomo.readthedocs.io/en/stable/installation.html
 
-There's also a folder "pyomo tuto" in the repo containings introductory pdf slides  
+There's also a folder "pyomo tuto" in the repo containing introductory pdf slides  
 
 ### Solver
 Solvers with Pyomo can be executed locally or remotely on the NEOS server.
