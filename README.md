@@ -13,14 +13,14 @@ There's also a folder in the repo containings introductory pdf slides
 ### Solver
 Solvers with Pyomo can be executed locally or remotely on the NEOS server.
 
-To execute locally, download and use Ipopt(open source) through the following link: <br>
+* To execute locally, download and use Ipopt(open source) through the following link: <br>
 https://www.coin-or.org/download/binary/Ipopt/ <br>
 Then the Ipopt\bin folder must be added to the PATH
 
 Here's a helpful tutorial to perform the aforementioned steps: <br>
 https://www.youtube.com/watch?v=EB_qVoM74Fg&ab_channel=BostanjiDevelopers
 
-To execute on the NEOS server, follow this guide: <br>
+* To execute on the NEOS server, follow this guide: <br>
 https://neos-guide.org/users-guide/third-party-interfaces/#pyomo
 
 
