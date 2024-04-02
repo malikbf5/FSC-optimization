@@ -86,7 +86,7 @@ def win_stay_lose_shift_2_init(newmodel,solvername = "snopt"):
     opt = SolverManagerFactory("neos")
     opt.solve(newmodel, solver = solvername)
     # results dataframe
-    vdf = value_dataframe(newmodel,name ="V_WSWS82_init(q,s)")
+    vdf = value_dataframe(newmodel,name ="V_WSWS_2_init(q,s)")
     adf, ndf = actionselect_nodetrans(newmodel.x, horiz_action=True,horiz_trans=False)
     return newmodel, vdf, adf, ndf
 
@@ -108,6 +108,51 @@ value_WSLS2df.insert(len(value_WSLS2df.columns),"objective funct",0.5* (1.47 + 0
 
 
 # initialize the model variable x with win_stay lose_shift strategy for 4 nodes controller
+def win_stay_lose_shift_4_init(newmodel,solvername = "snopt"):
+    # initial values for the variables with Win-Stay Lose-Shift policy
+    for qnode in newmodel.q:
+        for actionn in newmodel.a:
+            for qnodeprime in newmodel.q:
+                for obs in newmodel.o:
+                    # from node 0 having picked first action and won, we stay
+                    if qnode ==  0 and qnodeprime == 0 and actionn == 0 and obs == 1:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
+                    # from node 0 having picked first action and lost, we shift to node 1
+                    elif qnode == 0 and qnodeprime == 1 and actionn == 0 and obs == 0:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
+                    # from node 1 having picked first action and won, stochastic transition
+                    elif qnode == 1 and qnodeprime == 0 and actionn == 0 and obs == 1:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
+                    elif qnode == 1 and qnodeprime == 2 and actionn == 0 and obs == 1:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
+                    # from node 1 having picked first action and lost again, we shift to node 2
+                    elif qnode == 1 and qnodeprime == 2 and actionn == 0 and obs == 0:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
+                    # from node 2 having picked the second action and won, we stay
+                    elif qnode == 2 and qnodeprime == 2 and actionn == 1 and obs == 1:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
+                     # from node 2 having picked the second action and lost, we shift to node 3
+                    elif qnode == 2 and qnodeprime == 3 and actionn == 1 and obs == 0:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
+                    # from node 3 having picked the second action and won, stochastic transition
+                    elif qnode == 3 and qnodeprime == 2 and actionn == 1 and obs == 1:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
+                    elif qnode == 3 and qnodeprime == 0 and actionn == 1 and obs == 1:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
+                    # from node 3 having picked the second action and lost again, we shift to node 0
+                    elif qnode == 3 and qnodeprime == 0 and actionn == 1 and obs == 0:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
+                    # else = 0
+                    else:
+                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0
+    # newmodel.x.pprint() 
+    # solve the model
+    opt = SolverManagerFactory("neos")
+    opt.solve(newmodel, solver = solvername)
+    # results dataframe
+    vdf = value_dataframe(newmodel,name ="V_WSWS_4_init(q,s)")
+    adf, ndf = actionselect_nodetrans(newmodel.x, horiz_action=True,horiz_trans=False)
+    return newmodel, vdf, adf, ndf          
 
 
 
