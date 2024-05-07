@@ -2,11 +2,16 @@ from pyomo.environ import *
 import random
 import pandas as pd
 from itertools import product
+import networkx as nx
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import os
 os.environ['NEOS_EMAIL'] = 'malikbf5@gmail.com' 
 
+
 # define the qclp model and optimize it
-def qclp_formulation(num_states, num_actions, num_observations, num_nodes, b_0, gamma, state_transition_model, reward_model, observation_model):
+def qclp_formulation(num_states, num_actions, num_observations, num_nodes, b_0, gamma, state_transition_model, reward_model, observation_model, obj = "first node"):
     # Check if the inputs are valid
     if num_nodes > 0 and num_actions > 0 and num_observations > 0 and num_states > 0:
         # Define model
@@ -25,8 +30,12 @@ def qclp_formulation(num_states, num_actions, num_observations, num_nodes, b_0, 
         model.y = Var(model.q,model.s )
         
         # Objective
-        # Maximize sum over s_ of b_0(s)*V(0, s)
-        model.obj = Objective(expr = sum([b_0[s_]*model.y[0,s_] for s_ in model.s]) , sense = maximize)
+        if obj == "first node":
+            # Maximize sum over s_ of b_0(s)*V(0, s)
+            model.obj = Objective(expr = sum([b_0[s_]*model.y[0,s_] for s_ in model.s]) , sense = maximize)
+        elif obj == "all nodes":
+            # Maximize sum over q_ of sum over s_ of b_0(q,s)*V(q_, s)
+            model.obj = Objective(expr = sum([b_0[s_]*model.y[q_,s_]*(1/len(model.q)) for q_ in model.q for s_ in model.s]) , sense = maximize)            
         
         # Constraints
         # Probability constraints
@@ -54,105 +63,81 @@ def qclp_formulation(num_states, num_actions, num_observations, num_nodes, b_0, 
                         sum([model.x[qp_, a_, q_, 0] for qp_ in model.q]) 
                         * reward_model[s_, a_] 
                         + gamma 
-                        * sum([state_transition_model[s_, a_, sp_] 
+                        * sum([state_transition_model[sp_, a_,s_ ] 
                                 * observation_model[sp_, a_, o_] 
                                 * model.x[qp_, a_, q_, o_] 
                                 * model.y[qp_, sp_] for qp_ in model.q for o_ in model.o for sp_ in model.s ]) for a_ in model.a]))
                 
-        return model
+    return model
+
+
+
+
+
+# function that generates FSCs of different sizes and optimizes them
+def opt_instances(num_nodes_list, num_instances_for_each_numnodes,num_states, num_actions, num_observations, b0, gamma, state_transition_model, reward_model, observation_model, obj = "first node"):
+    sol = {}
+    for num_node in num_nodes_list:
+        sol[num_node] = {}
+        for instance in range(num_instances_for_each_numnodes):
+            sol[num_node][instance] = {}
+            # call qclp funct
+            newmodel = qclp_formulation(num_states, num_actions, num_observations, num_node, b0, gamma, state_transition_model, reward_model, observation_model, obj = obj)
+            # generate x values randomly
+            generate_randomx(newmodel, num_node, num_actions)
+            # newmodel.x.pprint()
+            # print([sum(newmodel.x[qnodeprime,actionn,qnode,obs].value for qnodeprime in newmodel.q for actionn in newmodel.a) for qnode in newmodel.q for obs in newmodel.o])
+            # print([sum(newmodel.x[qnodeprime,actionn,qnode,obs].value for qnodeprime in newmodel.q) == sum(newmodel.x[qnodeprime,actionn,qnode,0].value for qnodeprime in newmodel.q)  for qnode in newmodel.q for actionn in newmodel.a for obs in newmodel.o])
+            # call opt
+            opt = SolverManagerFactory('neos')
+            opt.solve(newmodel, solver = "snopt")
+            # save results
+            # dataframe for y
+            vdf = value_dataframe(newmodel)
+            # dataframe for action selection and node transition
+            adf, ndf = actionselect_nodetrans(newmodel.x, horiz_action = True, horiz_trans = True)
+            sol[num_node][instance] = {"model": newmodel, "value df": vdf, 
+                                       "action selection df": adf, "node transition df": ndf,
+                                       "objective": value(newmodel.obj),
+                                       "mean value": sum(newmodel.y.get_values().values()) / len(newmodel.y.get_values()),
+                                       "mean value for nodes": [round(sum(newmodel.y.get_values()[key] for key in newmodel.y.get_values().keys() if key[0] == qnode)/len(newmodel.s),2) for qnode in newmodel.q],
+                                       "mean value for states": [round(sum(newmodel.y.get_values()[key] for key in newmodel.y.get_values().keys() if key[1] == state)/len(newmodel.q),2) for state in newmodel.s]}
+        # mean value for a given controller size over instances
+        sol[num_node]["mean value"] = round(sum(sol[num_node][instance]["mean value"] 
+                                                for instance in range(num_instances_for_each_numnodes)) 
+                                                / num_instances_for_each_numnodes,3)
+        # max objective function for a given controller size over instances
+        sol[num_node]["max obj"] = max([sol[num_node][instance]["objective"] 
+                                                 for instance in range(num_instances_for_each_numnodes)])
+        # mean objective function for a given controller size over instances
+        sol[num_node]["mean obj"] = sum(sol[num_node][instance]["objective"] 
+                                                 for instance in range(num_instances_for_each_numnodes)) / num_instances_for_each_numnodes
+        # mean value for nodes for a given controller size over instances
+        sol[num_node]["mean value for nodes"] = np.round(sum(np.array(
+            sol[num_node][instance]["mean value for nodes"]) 
+            for instance in range(num_instances_for_each_numnodes)) 
+            / num_instances_for_each_numnodes,3)
+        # mean value for states a given controller size over instances
+        sol[num_node]["mean value for states"] = np.round(sum(np.array(
+            sol[num_node][instance]["mean value for states"]) 
+            for instance in range(num_instances_for_each_numnodes)) 
+            / num_instances_for_each_numnodes,3)
+        # value df for a given controller size    
+        sol[num_node]["value df"] = pd.concat([sol[num_node][instance]["value df"] for instance in range(num_instances_for_each_numnodes)])
+        # action selection df for a given controller size
+        sol[num_node]["action select df"] = pd.concat([sol[num_node][instance]["action selection df"] for instance in range(num_instances_for_each_numnodes)])
+        # node transition df for a given controller size
+        sol[num_node]["node trans df"] = pd.concat([sol[num_node][instance]["node transition df"] for instance in range(num_instances_for_each_numnodes)])
     
-
-
-
-
-# initialize the model variable x with win_stay lose_shift strategy for 2 nodes controller
-def win_stay_lose_shift_2_init(newmodel,solvername = "snopt"):
-    # initial values for the variables with Win-Stay Lose-Shift policy
-    for qnode in newmodel.q:
-        for actionn in newmodel.a:
-            for qnodeprime in newmodel.q:
-                for obs in newmodel.o:
-                    if qnode == qnodeprime and qnode == actionn and obs == 1:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
-                        # print(f"being in {qnode} having chosen {actionn} and observed {obs} we stay in {qnodeprime}", newmodel.x[qnodeprime,actionn,qnode,obs].value)
-                    elif qnode != qnodeprime and qnode == actionn and obs == 0:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1 
-                        # print(f"being in {qnode} having chosen {actionn} and observed {obs} we shift to {qnodeprime}",newmodel.x[qnodeprime,actionn,qnode,obs].value)
-                    else:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0
-                        # print(f"being in {qnode} having chosen {actionn} and observed {obs} we don't go to {qnodeprime}",newmodel.x[qnodeprime,actionn,qnode,obs].value)
-    # newmodel.x.pprint() 
-    # solve the model
-    opt = SolverManagerFactory("neos")
-    opt.solve(newmodel, solver = solvername)
-    # results dataframe
-    vdf = value_dataframe(newmodel,name ="V_WSWS_2_init(q,s)")
-    adf, ndf = actionselect_nodetrans(newmodel.x, horiz_action=True,horiz_trans=False)
-    return newmodel, vdf, adf, ndf
-
-
-
-
-
-# Win Stay Lose Shift strategy for two node controller dataframe
-value_WSLS2 = [{"(q,s)":(qi,si), "V_WSLS_2(q,s)": 1.47 if qi == si else 0.87}
-            for (qi,si) in product(range(2),range(2))]
-value_WSLS2df = pd.DataFrame(value_WSLS2).T
-value_WSLS2df.columns = value_WSLS2df.iloc[0]
-value_WSLS2df.drop(value_WSLS2df.index[0], inplace=True)
-value_WSLS2df.insert(len(value_WSLS2df.columns),"mean value",float(value_WSLS2df.mean(axis=1)[0]))
-value_WSLS2df.insert(len(value_WSLS2df.columns),"objective funct",0.5* (1.47 + 0.87))
-
-
-
-
-
-# initialize the model variable x with win_stay lose_shift strategy for 4 nodes controller
-def win_stay_lose_shift_4_init(newmodel,solvername = "snopt"):
-    # initial values for the variables with Win-Stay Lose-Shift policy
-    for qnode in newmodel.q:
-        for actionn in newmodel.a:
-            for qnodeprime in newmodel.q:
-                for obs in newmodel.o:
-                    # from node 0 having picked first action and won, we stay
-                    if qnode ==  0 and qnodeprime == 0 and actionn == 0 and obs == 1:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
-                    # from node 0 having picked first action and lost, we shift to node 1
-                    elif qnode == 0 and qnodeprime == 1 and actionn == 0 and obs == 0:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
-                    # from node 1 having picked first action and won, stochastic transition
-                    elif qnode == 1 and qnodeprime == 0 and actionn == 0 and obs == 1:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
-                    elif qnode == 1 and qnodeprime == 2 and actionn == 0 and obs == 1:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
-                    # from node 1 having picked first action and lost again, we shift to node 2
-                    elif qnode == 1 and qnodeprime == 2 and actionn == 0 and obs == 0:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
-                    # from node 2 having picked the second action and won, we stay
-                    elif qnode == 2 and qnodeprime == 2 and actionn == 1 and obs == 1:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
-                     # from node 2 having picked the second action and lost, we shift to node 3
-                    elif qnode == 2 and qnodeprime == 3 and actionn == 1 and obs == 0:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
-                    # from node 3 having picked the second action and won, stochastic transition
-                    elif qnode == 3 and qnodeprime == 2 and actionn == 1 and obs == 1:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
-                    elif qnode == 3 and qnodeprime == 0 and actionn == 1 and obs == 1:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0.5
-                    # from node 3 having picked the second action and lost again, we shift to node 0
-                    elif qnode == 3 and qnodeprime == 0 and actionn == 1 and obs == 0:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 1
-                    # else = 0
-                    else:
-                        newmodel.x[qnodeprime,actionn,qnode,obs] = 0
-    # newmodel.x.pprint() 
-    # solve the model
-    opt = SolverManagerFactory("neos")
-    opt.solve(newmodel, solver = solvername)
-    # results dataframe
-    vdf = value_dataframe(newmodel,name ="V_WSWS_4_init(q,s)")
-    adf, ndf = actionselect_nodetrans(newmodel.x, horiz_action=True,horiz_trans=False)
-    return newmodel, vdf, adf, ndf          
+    # solution dataframe
+    sol["dataframe"] = pd.DataFrame({ "controller size": num_nodes_list, 
+                                     "max obj": [sol[num_node]["max obj"] for num_node in num_nodes_list],
+                                     "mean obj": [sol[num_node]["mean obj"] for num_node in num_nodes_list],
+                                     "mean value": [sol[num_node]["mean value"] for num_node in num_nodes_list], 
+                                     "mean value for nodes V(q)": [sol[num_node]["mean value for nodes"] for num_node in num_nodes_list], 
+                                     "mean value for states V(s)": [sol[num_node]["mean value for states"] for num_node in num_nodes_list]})
+    sol["dataframe"].set_index("controller size", inplace=True)
+    return sol
 
 
 
@@ -237,10 +222,34 @@ def value_dataframe(newmodel,horiz=True, name ="V(q,s)"):
 
 
 
-# create action selection and node transition dataframes
-def actionselect_nodetrans(newmodelx, horiz_action = True, horiz_trans = False):
+# function that returns action selection and node transition dict
+def actionselect_nodetrans_dict(newmodelx, output = "all"):
     nodetrans = {}
     actionselect = {}
+    for key in newmodelx.get_values().keys():
+        # fixing (a,q,o)
+        index = key[1:]
+        # summing over x values (sum on q') where (a,q,o) is fixed
+        actionselect[key[1:3]] = sum(newmodelx.get_values()[key] for key in newmodelx.get_values().keys() if key[1:] == index)
+        # calculating P(q' | q, a, o) = x[q',a,q,o] / P(a | q)
+        nodetrans[key] = 0 
+        if actionselect[key[1:3]] != 0:
+            nodetrans[key] = newmodelx.get_values()[key] / actionselect[key[1:3]]
+    if output == "actionselect":
+        return actionselect
+    elif output == "nodetrans":
+        return nodetrans
+    else:
+        return actionselect, nodetrans
+
+
+
+
+
+# create action selection and node transition dataframes
+def actionselect_nodetrans(newmodelx, horiz_action = True, horiz_trans = False):
+    # get dicts
+    actionselect, nodetrans = actionselect_nodetrans_dict(newmodelx)
 
     for key in newmodelx.get_values().keys():
         index = key[1:]
@@ -270,3 +279,175 @@ def actionselect_nodetrans(newmodelx, horiz_action = True, horiz_trans = False):
         nodetransdf.set_index("(q',a,q,o)", inplace=True)
     
     return actionselectdf, nodetransdf
+
+
+
+
+# function that returns positions of action nodes circling a controller node
+def action_node_pos(number_actions,origin, radius = 1, angle = 0):
+    angle_increment = np.divide(np.multiply(2 , np.pi) , number_actions)
+    action_pos = []
+    for i in range(number_actions):
+        action_pos.append((np.multiply(np.cos(angle),radius)+origin[0], np.multiply(np.sin(angle),radius) + origin[1]))
+        angle += angle_increment
+    return action_pos
+
+
+
+
+# function that returns positions of nodes in a horizontal line
+def horiz_pos(number_nodes, space = 1, origin = (0,0)):
+    qnode_pos_list = []
+    if number_nodes % 2 == 0:
+        qnode_pos_list.append((origin[0] + space * 0.5, origin[1]))
+        qnode_pos_list.append((origin[0] - space * 0.5, origin[1]))
+        for i in range(1,number_nodes //2):
+            qnode_pos_list.append((qnode_pos_list[0][0] + (i)* space, qnode_pos_list[0][1] ))
+            qnode_pos_list.append((qnode_pos_list[1][0] - (i)*space, qnode_pos_list[1][1] ))
+    else:
+        qnode_pos_list.append(origin)
+        for i in range(number_nodes // 2):
+            qnode_pos_list.append((origin[0] + (i+1) * space, origin[1] ))
+            qnode_pos_list.append((origin[0] - (i+1) * space, origin[1] ))
+    return qnode_pos_list
+
+
+
+
+
+# function that draws fsc graph
+def fsc_graph(model,colors_dict):
+    # get action select and node transitions
+    actionselect, nodetrans = actionselect_nodetrans_dict(model.x)
+    # create names for everything
+    nodes = [ "q" + str(i) for i in model.q]
+    states = ["s" + str(i) for i in model.s]
+    actions = ["a" + str(i) for i in model.a]
+    observations = ["o" + str(i) for i in model.o]
+    # colors for observations
+    obs_color = {obs: colors_dict[list(colors_dict.keys())[i]] for i, obs in enumerate(observations)}
+    # Create graph
+    G = nx.MultiDiGraph() # multi directed graph
+    # action node list
+    actionnodelist = []
+    # dictionary for labels
+    labels_dict = {}
+    # adding nodes and edges
+    for qnode in nodes:
+        # add node and its label
+        G.add_node(qnode)
+        labels_dict[qnode] = qnode
+        # add action node associated to qnode and edge between them
+        for actionnode in actions:
+            # if the actionnode contributes
+            if round(actionselect[(int(actionnode[1]), int(qnode[1]))], 1) > 0:
+                # add the node to the list for later drawing
+                actionnodelist.append((actionnode, qnode))
+                labels_dict[(actionnode, qnode)] = actionnode
+                # edge where you have P(a | q)
+                G.add_edge(qnode, (actionnode, qnode), 
+                probability = actionselect[(int(actionnode[1]), int(qnode[1]))],
+                color = '#000000'
+                )
+                for qprime, obs in product(nodes,observations):
+                    # (q',a,q,o)
+                    index = (int(qprime[1]), int(actionnode[1]), int(qnode[1]), int(obs[1]))
+                    if round(nodetrans[index], 1) > 0:
+                        # add P(q' | q, a, o) edge
+                        G.add_edge((actionnode, qnode), qprime, 
+                        probability = nodetrans[index],
+                        color = obs_color[obs])
+    # radius surrounding origin for controller nodes
+    radius1 = 1
+    # radius surrounding controller node for action nodes
+    radius2 = 0.5
+    # get position of controller node surrounding the origin
+    qnodepos = action_node_pos(len(nodes),origin = (0,0), radius = radius1)
+    pos = {}
+    for qnode in nodes:
+        # add position of qnode 
+        pos[qnode] = qnodepos.pop(0)
+        # position action nodes surrounding the controller node
+        actionnodepos = action_node_pos(len(actionnodelist), pos[qnode], radius = radius2)
+        for actionnode in actions:
+            if (actionnode, qnode) in actionnodelist:
+                pos[(actionnode, qnode)] = actionnodepos.pop(0)
+
+    # Draw nodes
+    # controller nodes
+    nx.draw_networkx_nodes(G, pos,nodes, node_size=500, node_color='skyblue')
+    # action nodes
+    nx.draw_networkx_nodes(G, pos,actionnodelist, node_size=500, node_color='red', node_shape= "s")
+    # Draw edges
+    widthlist = [G[e[0]][e[1]][0]['probability'] for e in G.edges]
+    coloredge = [G[e[0]][e[1]][0]['color'] for e in G.edges]
+    nx.draw_networkx_edges(G, pos, width=widthlist, arrows=True,  edge_color = coloredge,
+                           connectionstyle='arc3, rad = 0.3', arrowsize = 20)
+    # Draw labels
+    # actionnode labels
+    nx.draw_networkx_labels(G, pos,
+                            labels = {key: labels_dict[key] 
+                            for key in labels_dict.keys() if type(key) == tuple}, 
+                            font_size=10, font_family="sans-serif",
+                            font_color = "w")
+    # qnode labels
+    nx.draw_networkx_labels(G, pos,
+                            labels = {key: labels_dict[key] 
+                            for key in labels_dict.keys() if type(key) == str}, 
+                            font_size=10, font_family="sans-serif",
+                            font_color = "k")
+    # legend
+    # Get unique edge colors
+    legend_elements = [Line2D([0], [0], color=color, lw=2,
+                      label=f'{[key for key in obs_color.keys() if obs_color[key] == color][0]}') 
+                      for color in obs_color.values()]
+    plt.legend(handles=legend_elements, loc='upper right')
+    plt.title('Finite State Controller')
+    plt.show()    
+
+
+
+
+
+# function that returns Transition dict
+def capital_transition(model, state_transition_model, observation_model):
+    T = {}
+    for (sprime,qprime,state,qnode) in product(model.s,model.q,model.s,model.q):
+        # T(s',m' | s,m) = sum_a,y P(a | m) P(y | s',a) P(s' | s,a) P(m' | m,a,y)
+        T[sprime,qprime,state,qnode] = sum(value(model.x[qprime,actionn,qnode,obs]) *
+                                           state_transition_model[sprime,actionn,state]*
+                                           observation_model[sprime,actionn,obs]
+                                           for actionn,obs in product(model.a,model.o)
+                                           )
+    return T    
+
+
+
+
+
+# function that returns occupancy dict
+def eta(model,state_transition_model, observation_model, gamma):
+    # get T
+    T = capital_transition(model, state_transition_model, observation_model)
+    # for all s',m' rho(s',m') = eta(s',m') - sum_s,m gamma* T(s',m' | s,m) eta(s,m)
+    # solve system of linear equations
+    # matrix of coefficients
+    a = np.zeros((len(model.s)*len(model.q),len(model.s)*len(model.q)))
+    # vector of constants which is rho(s',m')
+    b = np.ones(len(model.s)*len(model.q)) / (len(model.s) * len(model.q))
+    # fill a
+    for i, index in enumerate(product(model.s,model.q)):
+        for j, secindex in enumerate(product(model.s,model.q)):
+            if i == j:
+                # coefficient of eta(s',m') = 1 - gamma * T(s',m' | s,m)
+                a[i,j] = 1 - gamma * T[index[0], index[1], secindex[0], secindex[1]]
+            else:
+                # coefficient of eta(s,m)  = - gamma * T(s',m' | s,m)
+                a[i,j] = - gamma * T[index[0], index[1], secindex[0], secindex[1]]
+    # solve the system of linear equations
+    sol = list(np.linalg.solve(a, b))
+    # get eta with index
+    eta = {key: sol[index] for index, key in enumerate(product(model.s,model.q))}
+    return eta
+
+
