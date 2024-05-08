@@ -173,7 +173,6 @@ def generate_randomx(model,num_nodes,num_actions):
 
 
 
-
 # create value dataframe
 def value_dataframe(newmodel,horiz=True, name ="V(q,s)"):
     optimal_y = {"(q,s)": [key for key in newmodel.y.get_values().keys()],
@@ -185,17 +184,17 @@ def value_dataframe(newmodel,horiz=True, name ="V(q,s)"):
         # drop extra row
         optimal_y_df = optimal_y_df.drop(optimal_y_df.index[0])
         # add objective function value
-        optimal_y_df.insert(0,"objective funct",value(newmodel.obj))
+        optimal_y_df.insert(len(optimal_y_df.columns),"objective funct",value(newmodel.obj))
         # add mean value
-        optimal_y_df.insert(1,"mean value",float(optimal_y_df.mean(axis=1)[0]))
+        optimal_y_df.insert(len(optimal_y_df.columns),"mean value",float(optimal_y_df.mean(axis=1)[0]))
         # add value over nodes
-        optimal_y_df.insert(2,
+        optimal_y_df.insert(len(optimal_y_df.columns),
                             "value for nodes V(q)",
                             str([round(sum(newmodel.y.get_values()[key] for key in newmodel.y.get_values().keys() if key[0] == qnode)
                                    /len(newmodel.s),3) 
                                    for qnode in newmodel.q]))
         # add value over states
-        optimal_y_df.insert(3,"value for states V(s)",
+        optimal_y_df.insert(len(optimal_y_df.columns),"value for states V(s)",
                             str([round(sum(newmodel.y.get_values()[key] for key in newmodel.y.get_values().keys() if key[1] == state)
                                    /len(newmodel.q),3) 
                              for state in newmodel.s]))
@@ -217,6 +216,38 @@ def value_dataframe(newmodel,horiz=True, name ="V(q,s)"):
                                                                for si in newmodel.s])
         
     return optimal_y_df
+
+
+
+
+# function that calculates the value (variables y) of a fixed strategy (fixed x variables)
+def calculate_value_list(model, state_transition_model, observation_model, reward_model, gamma):
+    # matrix of coefficients
+    a = np.zeros((len(model.q)*len(model.s),len(model.q)*len(model.s)))
+    # vector of constants
+    b = np.zeros(len(model.q)*len(model.s))
+    # loop the same way in qclp_formulation
+    i = 0
+    for q_ in model.q:
+        for s_ in model.s:
+            # sum_a( sum_q'(x[q',a,q,o_k]) * R[s, a] )
+            b[i] = -sum(
+                sum([value(model.x[qp_, a_, q_, 0]) for qp_ in model.q])
+                * reward_model[s_, a_]   for a_ in model.a)
+            j = 0
+            for qp_ in model.q:
+                for sp_ in model.s:
+                    # sum_a( sum_o( gammma * P(s'|s,a) * O(o|s',a) * x[q',a,q,o] ) )
+                    a[i,j] = sum(
+                            gamma * state_transition_model[sp_,a_,s_] *
+                            observation_model[sp_, a_, o_] *
+                            value(model.x[qp_, a_, q_, o_]) 
+                        for a_ in model.a for o_ in model.o) - int(qp_ == q_ and sp_ == s_)
+                    j += 1
+            i += 1
+    # solve the linear system and get values for this strategy
+    v = list(np.linalg.solve(a, b))
+    return v            
 
 
 
@@ -426,7 +457,7 @@ def capital_transition(model, state_transition_model, observation_model):
 
 
 # function that returns occupancy dict
-def eta(model,state_transition_model, observation_model, gamma):
+def eta_calculation(model,state_transition_model, observation_model, gamma):
     # get T
     T = capital_transition(model, state_transition_model, observation_model)
     # for all s',m' rho(s',m') = eta(s',m') - sum_s,m gamma* T(s',m' | s,m) eta(s,m)
