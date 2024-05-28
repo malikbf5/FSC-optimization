@@ -350,13 +350,18 @@ def horiz_pos(number_nodes, space = 1, origin = (0,0)):
 def fsc_graph(model,colors_dict):
     # get action select and node transitions
     actionselect, nodetrans = actionselect_nodetrans_dict(model.x)
+    # print("xv",model.x.get_values())
+    # print("as", actionselect)
+    # print("nt", nodetrans)
     # create names for everything
     nodes = [ "q" + str(i) for i in model.q]
     states = ["s" + str(i) for i in model.s]
     actions = ["a" + str(i) for i in model.a]
     observations = ["o" + str(i) for i in model.o]
+    # print(observations)
     # colors for observations
     obs_color = {obs: colors_dict[list(colors_dict.keys())[i]] for i, obs in enumerate(observations)}
+    # print(obs_color)
     # Create graph
     G = nx.MultiDiGraph() # multi directed graph
     # action node list
@@ -372,6 +377,7 @@ def fsc_graph(model,colors_dict):
         for actionnode in actions:
             # if the actionnode contributes
             if round(actionselect[(int(actionnode[1]), int(qnode[1]))], 1) > 0:
+                # print(f"as{(int(actionnode[1]), int(qnode[1]))}: {actionselect[(int(actionnode[1]), int(qnode[1]))]}")
                 # add the node to the list for later drawing
                 actionnodelist.append((actionnode, qnode))
                 labels_dict[(actionnode, qnode)] = actionnode
@@ -385,7 +391,8 @@ def fsc_graph(model,colors_dict):
                     index = (int(qprime[1]), int(actionnode[1]), int(qnode[1]), int(obs[1]))
                     if round(nodetrans[index], 1) > 0:
                         # add P(q' | q, a, o) edge
-                        G.add_edge((actionnode, qnode), qprime, 
+                        # print(f"nt{index}{nodetrans[index]}")
+                        G.add_edge((actionnode, qnode), qprime, observation = obs, 
                         probability = nodetrans[index],
                         color = obs_color[obs])
     # radius surrounding origin for controller nodes
@@ -410,10 +417,19 @@ def fsc_graph(model,colors_dict):
     # action nodes
     nx.draw_networkx_nodes(G, pos,actionnodelist, node_size=500, node_color='red', node_shape= "s")
     # Draw edges
-    widthlist = [G[e[0]][e[1]][0]['probability'] for e in G.edges]
-    coloredge = [G[e[0]][e[1]][0]['color'] for e in G.edges]
-    nx.draw_networkx_edges(G, pos, width=widthlist, arrows=True,  edge_color = coloredge,
-                           connectionstyle='arc3, rad = 0.3', arrowsize = 20)
+    for node1, node2 in product(G.nodes, G.nodes):
+        if G.has_edge(node1, node2):
+            for key in G[node1][node2].keys():
+                if 'observation' not in G[node1][node2][key].keys(): 
+                    nx.draw_networkx_edges(G, pos, [(node1, node2, key)], width= G[node1][node2][key]['probability'],
+                                       arrows=True,  edge_color = G[node1][node2][key]['color'],
+                                       connectionstyle='arc3, rad = 0.3', arrowsize = 20)
+                else:
+                    obsindex = int(G[node1][node2][key]['observation'][1])
+                    nx.draw_networkx_edges(G, pos, [(node1, node2, key)], width= G[node1][node2][key]['probability'], 
+                                        arrows=True,  edge_color = G[node1][node2][key]['color'],
+                                        connectionstyle="arc3,rad=rrr".replace('rrr',str(0.3*(1+obsindex))), 
+                                        arrowsize = 20)
     # Draw labels
     # actionnode labels
     nx.draw_networkx_labels(G, pos,
