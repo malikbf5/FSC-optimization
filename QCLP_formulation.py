@@ -354,10 +354,10 @@ def fsc_graph(model,colors_dict):
     # print("as", actionselect)
     # print("nt", nodetrans)
     # create names for everything
-    nodes = [ "q" + str(i) for i in model.q]
+    nodes = [ "m" + str(i) for i in model.q]
     states = ["s" + str(i) for i in model.s]
     actions = ["a" + str(i) for i in model.a]
-    observations = ["o" + str(i) for i in model.o]
+    observations = ["y" + str(i) for i in model.o]
     # print(observations)
     # colors for observations
     obs_color = {obs: colors_dict[list(colors_dict.keys())[i]] for i, obs in enumerate(observations)}
